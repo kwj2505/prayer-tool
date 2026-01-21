@@ -663,6 +663,98 @@ function buildMessage({teamKey, dateISO, entries, icons, titleEmoji, includeNoti
 
     $("date").value = todayISO();
     loadSettings();
-  </script>
+  
+
+    // === Cross-device TEAM LINKS via URL hash (SAFE patch) ===
+    // ✅ 날짜/기타 설정은 그대로(localStorage) 유지하고,
+    // ✅ 오직 팀별 링크만 URL 해시(#links=...)로 공유되도록 합니다.
+    (function(){
+      function b64urlEncode(str){
+        return btoa(unescape(encodeURIComponent(str)))
+          .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+      }
+      function b64urlDecode(b64){
+        const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+        const s = (b64 + pad).replace(/-/g,"+").replace(/_/g,"/");
+        return decodeURIComponent(escape(atob(s)));
+      }
+      function getHashLinksEnc(){
+        const h = (location.hash || "").replace(/^#/,"");
+        const m = h.match(/(?:^|&)links=([^&]+)/);
+        return m ? m[1] : "";
+      }
+      function readLinksFromHash(){
+        const enc = getHashLinksEnc();
+        if(!enc) return null;
+        try{
+          return JSON.parse(b64urlDecode(enc));
+        }catch(e){
+          return null;
+        }
+      }
+      function writeLinksToHash(linksObj){
+        try{
+          const payload = b64urlEncode(JSON.stringify(linksObj));
+          location.hash = "links=" + payload;
+        }catch(e){}
+      }
+      function applyHashLinks(){
+        const h = readLinksFromHash();
+        if(!h) return false;
+
+        // 아래 id들은 기존 파일의 input id를 그대로 사용합니다.
+        const ids = ["linkDream","linkWoori","linkServe","linkWorship"];
+        for(const id of ids){
+          const el = document.getElementById(id);
+          if(!el) continue;
+          if(h[id] && String(h[id]).trim()){
+            el.value = String(h[id]).trim();
+          }
+        }
+        // 해시 링크가 적용된 상태를 로컬에도 저장(이 기기에서도 유지)
+        try{
+          if(typeof getSettings === "function" && typeof saveSettings === "function"){
+            // saveSettings는 아래에서 래핑되므로, 로컬 저장도 같이 됩니다.
+            // 여기서는 localStorage만 업데이트하고 싶지만 기존 흐름 유지 위해 saveSettings 호출은 하지 않음.
+            localStorage.setItem(LS_KEY, JSON.stringify(getSettings()));
+          }
+        }catch(e){}
+        return true;
+      }
+
+      // 1) loadSettings는 원래대로 실행한 뒤, 링크만 해시에서 덮어쓰기
+      if(typeof loadSettings === "function"){
+        const _origLoad = loadSettings;
+        loadSettings = function(){
+          _origLoad();
+          applyHashLinks();
+        };
+      }
+
+      // 2) saveSettings는 원래대로 저장한 뒤, 링크 4개만 해시에 기록
+      if(typeof saveSettings === "function"){
+        const _origSave = saveSettings;
+        saveSettings = function(){
+          _origSave();
+          try{
+            if(typeof getSettings !== "function") return;
+            const s = getSettings();
+            writeLinksToHash({
+              linkDream: s.linkDream || "",
+              linkWoori: s.linkWoori || "",
+              linkServe: s.linkServe || "",
+              linkWorship: s.linkWorship || ""
+            });
+          }catch(e){}
+        };
+      }
+
+      // 3) 초기 화면에서도 한 번 적용(혹시 loadSettings가 호출되기 전/후 상관없이)
+      document.addEventListener("DOMContentLoaded", () => {
+        applyHashLinks();
+      });
+    })();
+
+</script>
 </body>
 </html>
